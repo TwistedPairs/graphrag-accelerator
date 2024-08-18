@@ -1,87 +1,41 @@
-FROM python:3.10
+FROM ubuntu:20.04
 
-# avoid common warnings
+# Set environment variable to non-interactive to prevent prompts
 ENV DEBIAN_FRONTEND=noninteractive
-ENV PIP_ROOT_USER_ACTION=ignore
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# configure environment
-ARG ENVNAME="GraphRAG"
-ARG USERNAME=vscode
-ARG USER_UID=1001
-ARG USER_GID=$USER_UID
-ARG WORKDIR=/${ENVNAME}
-
-# install python, pip, git, and other required tools
+# Ensure apt is up to date and install basic dependencies and ICU libraries
 RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    libicu-dev \
-    git \
-    curl \
-    sudo \
-    pre-commit \
-    wget \
-    jq \
     apt-transport-https \
-    lsb-release \
-    gnupg \
-    software-properties-common
-# install Azure CLI
-RUN curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-RUN az bicep install
-# install kubectl
-RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
-    && install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
-# install helm
-RUN curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 \
-    && chmod 700 get_helm.sh \
-    && ./get_helm.sh \
-    && rm ./get_helm.sh
-# install yq
-RUN wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq \
-    && chmod +x /usr/bin/yq
+    ca-certificates \
+    curl \
+    jq \
+    git \
+    sudo \
+    libicu66
 
-# install docker
-RUN curl -fsSL https://get.docker.com -o install-docker.sh \
-    && sh install-docker.sh \
-    && rm install-docker.sh
+# Install Azure CLI
+RUN curl -sL https://aka.ms/InstallAzureCLIDeb | bash
 
-# cleanup to keep the image size down
-RUN rm -rf /var/lib/apt/lists/* \
-    && apt-get purge -y --auto-remove \
-    && apt-get autoremove \
-    && apt-get clean
+# Install kubectl
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
 
-# set the location for the virtual environments to be outside the project directory
-ENV POETRY_VIRTUALENVS_IN_PROJECT=true
+# Install Helm
+RUN curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-# set up non-root user
-RUN useradd -ms /bin/bash -u ${USER_GID} ${USERNAME} \
-    && echo "${USERNAME}:${USERNAME}" | chpasswd \
-    # add user to sudo group and docker group
-    && adduser ${USERNAME} sudo \
-    && echo '%sudo ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers \
-    && usermod -aG docker ${USERNAME}
+# Install yq
+RUN curl -LO https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && \
+    mv yq_linux_amd64 /usr/local/bin/yq && \
+    chmod +x /usr/local/bin/yq
 
-# switch to non-root user
-USER ${USERNAME}
+# Reset the noninteractive frontend
+ENV DEBIAN_FRONTEND=
 
-# install poetry
-RUN curl -sSL https://install.python-poetry.org | python3 -
-
-# add the local bin to the PATH for the non-root user
-ENV PATH="/home/${USERNAME}/.local/bin:${PATH}"
-# Add venv to beginning of path so we don't have to activate it
-ENV PATH=/graphrag-accelerator/.venv/bin:$PATH
-
-# copy the project files into the container and set ownership
-COPY --chown=${USERNAME}:${USER_GID} . ${WORKDIR}
-
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-
-# Create directories for vscode server and extensions
-RUN mkdir -p /home/$USERNAME/.vscode-server/extensions \
-    && chown -R $USER_UID:$USER_GID /home/$USERNAME/.vscode-server
-
-ENTRYPOINT [ "/usr/local/bin/entrypoint.sh" ]
-CMD ["bash"]
+# Verify installations
+RUN az version
+RUN helm version
+RUN jq --version
+RUN yq --version
+RUN kubectl version --client
+RUN curl --version
+RUN sed --version
